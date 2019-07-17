@@ -5,16 +5,18 @@
 #define relay3 5
 #define relay4 4
 
+
+// note: https://seeeddoc.github.io/Relay_Shield_V2.0/ , Pins 4-7 are taken by relay function and cannot be overloaded by other pins. 
+
 #define MAX_TEMP  250
-// notes for next time: https://seeeddoc.github.io/Relay_Shield_V2.0/ , Pins 4-7 are taken by relay function and cannot be overloaded by other pins. 
-// if there are not enough pins, then connect the switches to the analog inputs/
+
 
 
 LiquidCrystal lcd(11, 10, 9, 8, 3, 2); // Creates an LC object. Parameters: (rs, enable, d4, d5, d6, d7)
 
 //Pins:
 int buttonPin = 13;
-int buttonPin2 = A2;
+int buttonPin2 = A2; //Used analogPin because insufficient digital pins
 
 //Time variables:
 int period = 1000;
@@ -41,10 +43,6 @@ int relayState2 = LOW;
 long lastDebounceTime = 0;
 long lastDebounceTime2 = 0;
 long debounceDelay = 50;
-
-
-//random:
-boolean flag = false;
 
 
 void setup() {
@@ -101,11 +99,11 @@ void loop() {
     if (reading2 != buttonState2){
       buttonState2 = reading2;
       
-      if ((reading2 == LOW)){
+      if ((reading2 == LOW)){     //unsure why but the analog pin button shows LOW when pushed
         digitalWrite(relay2, HIGH);
         digitalWrite(relay3, HIGH);
       
-        sec = secPrevious + 30;
+        sec = secPrevious + 30;   //incrementing by 30 seconds for testing purposes, will change to 15 minutes or 900 seconds.
         secPrevious = sec;
       }
     }  
@@ -129,7 +127,7 @@ void loop() {
     
 }
 
-float getTemp(){
+float getTemp(){      //converts analog input into fahrenheit temperature
   float temp1;
   temp1 = analogRead(A0);
   temp1= temp1 *9 / 5;
@@ -137,7 +135,7 @@ float getTemp(){
   return temp1;
 }
 
-void displayTemp(){
+void displayTemp(){     //prints to LCD the temperature
   float temp2 = getTemp();
   lcd.setCursor(0,2);
   lcd.print("TEMP: ");
@@ -145,7 +143,7 @@ void displayTemp(){
   lcd.print(" F");
 }
 
-void displayCountDown(int sec1){
+void displayCountDown(int sec1){      //the countdown timer for the LCD display
   lcd.clear();
   int displayMin = sec1/60;
   if (displayMin < 10) lcd.print("0");
