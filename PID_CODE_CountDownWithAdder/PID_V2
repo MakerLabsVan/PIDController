@@ -3,19 +3,12 @@
 #define relayA 7
 #define relayB 6
 #define relayC 5
-
-//Note: https://seeeddoc.github.io/Relay_Shield_V2.0/ , Pins 4-7 are taken by relay function and cannot be overloaded by other pins. 
-
-#define MAX_TEMP_A  200#include <LiquidCrystal.h> // includes the LiquidCrystal Library 
-
-#define relayA 7
-#define relayB 6
-#define relayC 5
 #define relayD 4
 
 //Note: https://seeeddoc.github.io/Relay_Shield_V2.0/ , Pins 4-7 are taken by relay function and cannot be overloaded by other pins. 
 
-
+#define MAX_ONBUTTON_TEMP    135
+#define MAX_ADDTIMEBUTTON_TEMP    100
 #define MAX_TEMP_B  100
 
 
@@ -120,14 +113,19 @@ void loop()
   
 int onButtonDebounceFunc(int buttonPin, int relayPin){      //Function for debouncing the ON Button and controlling RelayA
   
-  
+  float onButtonTemp = getTempFunc();
   onButtonReading = digitalRead(buttonPin);
+
+
   if (onButtonReading !=lastOnButtonState){
     onButtonLastDebounceTime = millis();
   }
+  if ((onButtonTemp > MAX_ONBUTTON_TEMP) || (onButtonTemp < 0)){
+    digitalWrite(relayPin,LOW);
+  }
 
   if((millis() - onButtonLastDebounceTime) > debounceDelay){
-   
+ 
     if (onButtonReading != onButtonState){
       onButtonState = onButtonReading;
       
@@ -153,25 +151,27 @@ int onButtonDebounceFunc(int buttonPin, int relayPin){      //Function for debou
 
 void addTimeButtonDebounceFunc(int ButtonPin, int relayPin1, int relayPin2){      //Function for debouncing Add Time Button and controlling relayB and C.
  addTimeButtonReading = digitalRead(ButtonPin);
- 
+
+
  if (addTimeButtonReading != lastAddTimeButtonState){
     addTimeButtonLastDebounceTime = millis();
   }
-  if(((millis() - addTimeButtonLastDebounceTime) > debounceDelay) && (relayState == HIGH) && (onButtonFlag == 1)){
-
-      if ((addTimeButtonReading  == LOW)){    //button is pushed, it goes from HIGH to LOW
-        
-        digitalWrite(relayPin1, HIGH);
-        digitalWrite(relayPin2, HIGH);
-        delay(400);   //This is here because the debouncing the add-time button is not working correctly
-        addTimeButtonFlag = 1;
-        Serial.print(addTimeButtonFlag);
-        secNow = secNow + 5;
-      }
-  }
+ if(((millis() - addTimeButtonLastDebounceTime) > debounceDelay) && (relayState == HIGH) && (onButtonFlag == 1)){
+  
+    if ((addTimeButtonReading  == LOW)){    //button is pushed, it goes from HIGH to LOW
+      
+      digitalWrite(relayPin1, HIGH);
+      digitalWrite(relayPin2, HIGH);
+      delay(400);   //This is here because the debouncing the add-time button is not working correctly
+      addTimeButtonFlag = 1;
+      
+      secNow = secNow + 5;
+    }
+}
  if (onButtonFlag == 0){      //turns off all relay when relayA is turned off
     digitalWrite(relayB, LOW);
     digitalWrite(relayC, LOW);
+    addTimeButtonFlag = 0;
   }
   lastAddTimeButtonState = addTimeButtonReading;
 }
@@ -214,12 +214,13 @@ void countDownMechanismFunc(){
     if ((secNow == 0) && (addTimeButtonFlag == 1)){
       digitalWrite(relayD, LOW);
       digitalWrite(relayB, LOW);
-      
       digitalWrite(relayC, LOW);
 
-      timerFlag = 1;
+      addTimeButtonFlag == 0;
     
-  //countdown flag should be here
+    }
+    if ((secNow != 0) || (addTimeButtonFlag != 0)){
+      timerFlag = 0;
     }
     temp = getTempFunc();
     if((secNow!=0) && (temp > MAX_TEMP_B)){
