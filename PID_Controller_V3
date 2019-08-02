@@ -1,0 +1,293 @@
+#include <LiquidCrystal.h> // includes the LiquidCrystal Library 
+
+#define relayA 7
+#define relayB 6
+#define relayC 5
+#define relayD 4
+
+//Note: https://seeeddoc.github.io/Relay_Shield_V2.0/ , Pins 4-7 are taken by relay function and cannot be overloaded by other pins. 
+
+#define MAX_ONBUTTON_TEMP    140
+#define ONBUTTON_BACKOPEN_TEMP    135
+#define MAX_ADDTIMEBUTTON_TEMP    145
+#define TEMP_STARTCOUNT  140
+#define TEMP_TURNBACKON_ONBUTTON  135
+#define TEMP_TURNBACKON_ADDTIMEBUTTON   132
+
+
+/* Parts: buttons (x3), Relays (x3), Temp Sensor(x1), LCD(x1), potentiometer(x1)
+ * 
+ * Description: 
+ * 
+ * NOTE:FOR TESTING REASONS, 259F IS CHANGED TO 140 AND 255F IS CHANGED TO 135. THE TEMPERATURE RANGE IS CHANGED SO THAT THE TEMPERATURE CONTROLS CAN BE TESTED.
+ * Upon startup, the LCD will display the temperature and the countdown time(00:00). If OnButton is pushed once, the AddTimeButton 
+ * will be enabled for input and if the temperature is also between 0 – 259F, then solenoid A will open (turn off). If the temperature is either lower than 0F or higher than 
+ * 259F, then AddTimeButton will be enabled but solenoid A will not close. If OnButton is pushed for a second time, then AddTimeButton will be disabled and 
+ * solenoid A, B and C will all close. Therefore, every time the onButton is pushed, the opposite state will occur (either from OFF to ON or ON to OFF). Additionally, 
+ * if AddTimeButton is pushed before OnButton, then nothing will happen. If either the onButton or AddTimeButton are pressed while the temperature is out of the desired range 
+ * (0-259), then all button presses will be ignored. 
+ * 
+ * 
+ * If AddTimeButton is pushed once, then 15 minutes is added to the countdown timer and if temperature is also between 0-250F, then solenoids B and C will open (turn on). 
+ * Each additional push to AddTimeButton will add 15 minutes to the countdown timer but will have no effect on solenoids B and C. If the temperature reaches 250F, 
+ * the countdown timer begins counting down. If temperature reaches above or below the temperature range of either solenoids A, B or C, the countdown timer will still be active. 
+ * The countdown timer will only stop when onButton is pressed or when the timer reaches zero. If the onButton is pressed when the countdown timer is not at zero, the timer will be reset to zero.
+ * 
+ * 
+ * 
+ * If the temperature reaches above 259F or below 0F, then solenoid A will close temporarily, until the temperature lowers to under 255F, where it will open again. The temperature is set to 255F and 
+ * not 259F to prevent the solenoids from rapidly opening and closing from small temperature changes.
+ * 
+ * If the temperature reaches above 250 or below 0F, then solenoid B and C will close temperarily until the temperature lowers to under 245, where it will oepn again. 
+ */
+
+LiquidCrystal lcd(9, 3, 19, 18, 17, 16); // Creates an LC object. Parameters: (rs, enable, d4, d5, d6, d7)
+
+//Pins:
+int onButtonPin = 2;   //pin for button 1 (Digital)
+int addTimeButtonPin = 8;   //pin for button 2 
+
+//Time variables:
+int period = 1000;
+int val = 0; //value from the onButtonPin
+unsigned long timeNow = 0;
+unsigned long oneSecond = 1000UL;
+unsigned long startTime = 0;
+int secNow = 0;
+int secLoop = 0;
+int displayMin = 0;
+int displaySec = 0;
+long addTimeButtonShutOffTime = 0;
+long shutOffTime = 0;
+
+//Temp variables:
+float temp;
+float onButtonTemp = 0;
+
+//De-bouncing variables:
+int onButtonState = LOW;
+int addTimeButtonState = LOW;
+int lastOnButtonState = LOW;
+int lastAddTimeButtonState = LOW;
+int relayStateA = LOW;
+int relayStateBC = LOW;
+bool relayState = LOW;
+long onButtonLastDebounceTime = 0;
+long addTimeButtonLastDebounceTime = 0;
+long lastDisplayTime = 0;
+long debounceDelay = 50;
+
+
+//flags:
+int timerFlag = 0;
+int countDownFlag = 0;
+int onButtonCutOffFlag = 0;
+int onButtonFlag = 0;
+int addTimeButtonFlag = 0;
+int addTimeButtonCutOffFlag = 0;
+int onButtonReading = LOW;
+int addTimeButtonReading = HIGH;
+
+
+void setup() {
+  // put your setup code here, to run once:
+  Serial.begin(9600);// setup Serial Monitor to display information
+  pinMode(relayA, OUTPUT);// connected to Relay 1
+  pinMode(relayB, OUTPUT);// connected to Relay 2
+  pinMode(relayC, OUTPUT);// connected to Relay 3
+  pinMode(relayD, OUTPUT);
+  
+  digitalWrite(relayA, LOW);
+  digitalWrite(relayB, LOW);
+  digitalWrite(relayC, LOW);
+  digitalWrite(relayD, LOW);
+  
+
+  lcd.begin(16, 2); // Initializes the interface to the LCD screen, and specifies the dimensions (width and height) of the display }
+  lcd.clear();
+  
+  pinMode(onButtonPin, INPUT_PULLUP);
+  pinMode(addTimeButtonPin, INPUT_PULLUP);
+
+  shutOffTime = millis(); //for autoshutdown when >140
+
+}
+//////////////////////////////- Main Loop -/////////////////////////////////////////
+
+void loop() 
+{
+
+
+  onButtonDebounceFunc(onButtonPin, relayD);
+  addTimeButtonDebounceFunc(addTimeButtonPin, relayB, relayC);
+  displayTempFunc();
+  displayCountDownFunc(secNow);
+  countDownMechanismFunc();   //Working as supposed to
+
+  
+  //Serial.println(relayState);
+
+  
+}
+
+/////////////////////////////-functions start-/////////////////////////////////////
+  
+
+float getTempFunc(){      //function for converting analog signal to Fahrenheit
+  float temp1;
+  temp1 = analogRead(A0); //read the temp from A0
+  temp1= temp1 *9 / 5;
+  temp1 = temp1 + 32;
+  return temp1;
+}
+
+void displayTempFunc(){     //Function for displaying temperature
+  lcd.setCursor(0,2);
+  lcd.print("TEMP: ");
+  float temp2 = getTempFunc();
+  if ((millis() - lastDisplayTime) > 500){
+    lcd.print(temp2);
+    lcd.print(" F");
+    lastDisplayTime = millis();
+  }
+}
+void displayCountDownFunc(int sec){
+  lcd.setCursor(0,0);
+  int displayMin = sec/60;
+  if (displayMin < 10) lcd.print("0");
+  lcd.print(displayMin);
+  lcd.print(":");
+  int displaySec = sec % 60;
+  if (displaySec < 10) lcd.print("0");
+  lcd.print(sec % 60);
+}
+
+void countDownMechanismFunc(){
+ if ((millis() - startTime >= oneSecond))
+  {
+    if (onButtonFlag == 0){
+      secNow = 0 ;
+    }
+    if ((secNow == 0) && (addTimeButtonFlag == 1)){
+      relayState = LOW;
+      digitalWrite(relayD, relayState);
+      digitalWrite(relayB, LOW);
+      digitalWrite(relayC, LOW);
+      timerFlag = 1;
+      addTimeButtonFlag = 0;
+      
+    }
+   if ((secNow != 0) || (addTimeButtonFlag != 1) || (onButtonFlag != 0)){
+      timerFlag = 0;
+    }
+    
+    if(getTempFunc() >= TEMP_STARTCOUNT){
+      countDownFlag = 1;
+    }
+    
+    if(((secNow!=0) && countDownFlag == 1)){        ///Start counting down when Temperature reaches 250.
+      secNow--;
+    }
+    
+    if(secNow == 0){
+      countDownFlag = 0;
+    }
+   
+    startTime += oneSecond;
+  }
+}
+
+
+
+void onButtonDebounceFunc(int buttonPin, int relayPin){      //Function for debouncing the ON Button and controlling RelayA
+
+  
+  onButtonTemp = getTempFunc();
+  onButtonReading = digitalRead(buttonPin);
+
+
+  if (onButtonReading !=lastOnButtonState){
+    onButtonLastDebounceTime = millis();
+  }
+
+  Serial.println(onButtonTemp);
+  
+  if (((onButtonTemp >= MAX_ONBUTTON_TEMP)&& (shutOffTime <= millis())) || ((onButtonTemp < 0.0) && (shutOffTime <= millis())) ){    //Changed to take a sample size and stop the oscillation//
+    digitalWrite(relayPin,LOW);
+    Serial.println("***********");
+    shutOffTime = millis()+500;
+    onButtonCutOffFlag = 1;
+
+  }
+  
+  
+  if((millis() - onButtonLastDebounceTime) > debounceDelay){
+ 
+    if (onButtonReading != onButtonState){
+
+      onButtonState = onButtonReading;
+
+      if ((onButtonState == LOW)){
+
+        relayState = !relayState;
+ 
+        if ((relayState == HIGH)){
+          onButtonFlag = 1;
+        }
+        else{
+          onButtonFlag = 0;
+        }
+      
+      }
+    }
+  if(onButtonCutOffFlag != 1){      //  turn on the relay only if the temperature is below the maximum operating temperature.
+    digitalWrite(relayPin,relayState);
+  }
+ }
+ 
+  lastOnButtonState = onButtonReading;
+  if(getTempFunc() < TEMP_TURNBACKON_ONBUTTON){        //to prevent on/off spam of relay, turn back on only when the temperature cools to 135.
+    onButtonCutOffFlag = 0;
+  }
+}
+
+
+
+void addTimeButtonDebounceFunc(int ButtonPin, int relayPin1, int relayPin2){      //Function for debouncing Add Time Button and controlling relayB and C.
+ addTimeButtonReading = digitalRead(ButtonPin);
+
+
+if (((onButtonTemp >= MAX_ADDTIMEBUTTON_TEMP)&& (addTimeButtonShutOffTime <= millis())) || ((onButtonTemp < 0.0) && (addTimeButtonShutOffTime <= millis())) ){    //Changed to take a sample size and stop the oscillation//
+  digitalWrite(relayPin1, LOW);
+  digitalWrite(relayPin2, LOW);
+  Serial.println("***********");
+  addTimeButtonShutOffTime = millis()+500;
+  addTimeButtonCutOffFlag = 1;
+  }
+
+ if (addTimeButtonReading != lastAddTimeButtonState){
+    addTimeButtonLastDebounceTime = millis();
+  }
+ if(((millis() - addTimeButtonLastDebounceTime) > debounceDelay) && (relayState == HIGH) && (onButtonFlag == 1)){
+  
+    if ((addTimeButtonReading  == LOW)){    //button is pushed, it goes from HIGH to LOW
+      
+      digitalWrite(relayPin1, HIGH);
+      digitalWrite(relayPin2, HIGH);
+      delay(400);   //This is here because the debouncing the add-time button is not working correctly
+      addTimeButtonFlag = 1;
+      
+      secNow = secNow + 5;
+    }
+}
+ if ((addTimeButtonFlag == 1) && (getTempFunc() < TEMP_TURNBACKON_ADDTIMEBUTTON)){
+   digitalWrite(relayPin1, HIGH);
+   digitalWrite(relayPin2, HIGH);
+ }
+ if (onButtonFlag == 0){      //turns off all relay when relayA is turned off
+    digitalWrite(relayB, LOW);
+    digitalWrite(relayC, LOW);
+    addTimeButtonFlag = 0;
+  }
+  lastAddTimeButtonState = addTimeButtonReading;
+}
